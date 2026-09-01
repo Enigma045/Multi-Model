@@ -823,7 +823,23 @@ func getSandboxRelativeFiles(baseDir string) []string {
 	return files
 }
 
-func handleClaudeAttachRequests(answer string, depth int) bool {
+func deduplicateFiles(files []FilePayload) []FilePayload {
+	if len(files) <= 1 {
+		return files
+	}
+	var unique []FilePayload
+	seen := make(map[string]bool)
+	for _, f := range files {
+		clean := strings.ToLower(strings.TrimSpace(f.Name))
+		if clean != "" && !seen[clean] {
+			seen[clean] = true
+			unique = append(unique, f)
+		}
+	}
+	return unique
+}
+
+func handleClaudeAttachRequests(answer string, attachedInThisTurn map[string]bool, depth int) bool {
 	if depth >= 5 {
 		return false
 	}
@@ -842,6 +858,14 @@ func handleClaudeAttachRequests(answer string, depth int) bool {
 			target = cleanName
 		}
 
+		lowerBase := strings.ToLower(filepath.Base(cleanName))
+		lowerClean := strings.ToLower(cleanName)
+		lowerRel := strings.ToLower(relPath)
+		if attachedInThisTurn != nil && (attachedInThisTurn[lowerBase] || attachedInThisTurn[lowerClean] || attachedInThisTurn[lowerRel]) {
+			// Skip file that was already attached in this conversation turn
+			continue
+		}
+
 		if fi, err := os.Stat(target); err == nil {
 			if fi.IsDir() {
 				dirFiles := getSandboxRelativeFiles(target)
@@ -852,29 +876,31 @@ func handleClaudeAttachRequests(answer string, depth int) bool {
 							filePayloads = append(filePayloads, *fp)
 						}
 					}
-					fmt.Printf("%s📎 Claude requested directory '%s' -> Attaching %d files directly...%s\n", colorCyan, relPath, len(filePayloads), colorReset)
+					fmt.Printf("%s📎 AI requested directory '%s' -> Attaching %d files directly...%s\n", colorCyan, relPath, len(filePayloads), colorReset)
 				} else {
 					list := fmt.Sprintf("(No files in Sandbox/%s)", cleanName)
 					if len(dirFiles) > 0 {
 						list = strings.Join(dirFiles, "\n")
 					}
-					fmt.Printf("%s📎 Claude requested directory '%s' -> Sending file list (%d files)...%s\n", colorCyan, relPath, len(dirFiles), colorReset)
+					fmt.Printf("%s📎 AI requested directory '%s' -> Sending file list (%d files)...%s\n", colorCyan, relPath, len(dirFiles), colorReset)
 					missingFiles = append(missingFiles, fmt.Sprintf("List of files in Sandbox/%s:\n\n%s", cleanName, list))
 				}
 			} else {
 				fp, err := createFilePayload(cleanName, target)
 				if err == nil {
-					fmt.Printf("%s📎 Claude requested '%s' -> Attaching exact file %s (%d bytes)...%s\n", colorCyan, relPath, target, fi.Size(), colorReset)
+					fmt.Printf("%s📎 AI requested '%s' -> Attaching exact file %s (%d bytes)...%s\n", colorCyan, relPath, target, fi.Size(), colorReset)
 					filePayloads = append(filePayloads, *fp)
 				} else {
 					fmt.Printf("%s⚠️ Error reading '%s': %v%s\n", colorRed, target, err, colorReset)
 				}
 			}
 		} else {
-			fmt.Printf("%s⚠️ Claude requested '%s' but it was not found in Sandbox.%s\n", colorYellow, relPath, colorReset)
+			fmt.Printf("%s⚠️ AI requested '%s' but it was not found in Sandbox.%s\n", colorYellow, relPath, colorReset)
 			missingFiles = append(missingFiles, relPath)
 		}
 	}
+
+	filePayloads = deduplicateFiles(filePayloads)
 
 	// If we successfully attached files, send them directly without sending false error notices
 	if len(filePayloads) > 0 {
@@ -1090,7 +1116,7 @@ func main() {
 					fmt.Printf("%s🔄 Sending terminal execution feedback to %s...%s\n\n", colorCyan, provName, colorReset)
 					sendPromptInternalWithFiles(feedbackMsg, nil, 1)
 				} else {
-					handleClaudeAttachRequests(evt.Text, 0)
+					handleClaudeAttachRequests(evt.Text, nil, 0)
 				}
 			}
 		}
@@ -1432,6 +1458,14 @@ func sendPromptWithFiles(prompt string, files []FilePayload) {
 }
 
 func sendPromptInternalWithFiles(prompt string, files []FilePayload, depth int) {
+	files = deduplicateFiles(files)
+
+	attachedInThisTurn := make(map[string]bool)
+	for _, f := range files {
+		attachedInThisTurn[strings.ToLower(strings.TrimSpace(f.Name))] = true
+		attachedInThisTurn[strings.ToLower(filepath.Base(strings.TrimSpace(f.Name)))] = true
+	}
+
 	terminalWaitingMu.Lock()
 	isTerminalWaiting = true
 	terminalWaitingMu.Unlock()
@@ -1494,7 +1528,7 @@ func sendPromptInternalWithFiles(prompt string, files []FilePayload, depth int) 
 			return
 		}
 
-		handleClaudeAttachRequests(answer, depth)
+		handleClaudeAttachRequests(answer, attachedInThisTurn, depth)
 	case <-time.After(240 * time.Second):
 		stopSpinner <- true
 		urlCheck := "https://claude.ai"
@@ -1608,7 +1642,7 @@ func runInteractiveChat() {
 				fmt.Printf("%s🔄 Sending terminal execution feedback to %s for review...%s\n\n", colorCyan, provName, colorReset)
 				sendPromptInternalWithFiles(feedbackMsg, nil, 1)
 			} else {
-				handleClaudeAttachRequests(answerEvt.Text, 0)
+				handleClaudeAttachRequests(answerEvt.Text, nil, 0)
 			}
 			printPromptPrompt()
 		}

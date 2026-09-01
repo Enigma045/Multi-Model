@@ -120,11 +120,23 @@ function findFileInput() {
 async function attachFilesToWeb(fileObjects) {
   if (!fileObjects || fileObjects.length === 0) return false;
 
-  console.log(`[${DISPLAY_NAME} Assistant] 📎 Attaching ${fileObjects.length} exact file(s):`, fileObjects.map(f => f.name));
+  // Deduplicate file objects by name to prevent any duplicates
+  const uniqueFiles = [];
+  const seenNames = new Set();
+  for (const f of fileObjects) {
+    if (f && !seenNames.has(f.name)) {
+      seenNames.add(f.name);
+      uniqueFiles.push(f);
+    }
+  }
+
+  if (uniqueFiles.length === 0) return false;
+
+  console.log(`[${DISPLAY_NAME} Assistant] 📎 Attaching ${uniqueFiles.length} exact file(s):`, uniqueFiles.map(f => f.name));
 
   const dt = new DataTransfer();
-  for (const f of fileObjects) {
-    if (f) dt.items.add(f);
+  for (const f of uniqueFiles) {
+    dt.items.add(f);
   }
 
   // 1. Direct file input assignment
@@ -132,8 +144,8 @@ async function attachFilesToWeb(fileObjects) {
   if (fileInput) {
     try {
       fileInput.files = dt.files;
+      // Dispatch ONLY the change event (do not dispatch duplicate input event)
       fileInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-      fileInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
       console.log(`[${DISPLAY_NAME} Assistant] Files attached via input[type="file"]`);
       await new Promise((r) => setTimeout(r, 600));
       return true;
@@ -488,6 +500,11 @@ async function triggerSend(editor) {
   editor.dispatchEvent(new KeyboardEvent('keyup', eventOptions));
 }
 
+// Injection concurrency lock and debounce
+let isCurrentlyInjecting = false;
+let lastInjectedSignature = '';
+let lastInjectedTimestamp = 0;
+
 // Inject prompt and/or attached files into AI
 async function injectAndSend(promptText, files, onComplete) {
   if (typeof files === 'function') {
@@ -495,63 +512,88 @@ async function injectAndSend(promptText, files, onComplete) {
     files = null;
   }
 
-  // Wait up to 8s for the editor to appear
-  let editor = null;
-  const editorDeadline = Date.now() + 8000;
-  while (!editor && Date.now() < editorDeadline) {
-    editor = findEditor();
-    if (!editor) await new Promise((r) => setTimeout(r, 300));
+  // Create unique signature of this injection
+  const fileNames = Array.isArray(files) ? files.map((f) => f?.name || '').sort().join(',') : '';
+  const currentSig = `${(promptText || '').trim()}::${fileNames}`;
+  const now = Date.now();
+
+  // Deduplicate: if identical prompt+files received within 3 seconds or currently injecting identical request, skip!
+  if (isCurrentlyInjecting && currentSig === lastInjectedSignature) {
+    console.log(`[${DISPLAY_NAME} Assistant] ⏩ Skipping duplicate injection (already in progress)`);
+    return;
+  }
+  if (currentSig === lastInjectedSignature && (now - lastInjectedTimestamp < 3000)) {
+    console.log(`[${DISPLAY_NAME} Assistant] ⏩ Skipping duplicate injection within 3s debounce window`);
+    return;
   }
 
-  if (!editor) {
-    throw new Error(`${DISPLAY_NAME} input box not found. Make sure you are logged in to ${window.location.hostname}`);
-  }
+  lastInjectedSignature = currentSig;
+  lastInjectedTimestamp = now;
+  isCurrentlyInjecting = true;
 
-  // 1. Attach exact files if provided
-  if (files && Array.isArray(files) && files.length > 0) {
-    const fileObjects = files.map(createFileObject).filter(Boolean);
-    if (fileObjects.length > 0) {
-      await attachFilesToWeb(fileObjects);
-      await waitForAttachmentsReady(editor);
+  try {
+    // Wait up to 8s for the editor to appear
+    let editor = null;
+    const editorDeadline = Date.now() + 8000;
+    while (!editor && Date.now() < editorDeadline) {
+      editor = findEditor();
+      if (!editor) await new Promise((r) => setTimeout(r, 300));
     }
-  }
 
-  const textToInject = (promptText || '').trim();
-  if (textToInject) {
-    editor.focus();
+    if (!editor) {
+      throw new Error(`${DISPLAY_NAME} input box not found. Make sure you are logged in to ${window.location.hostname}`);
+    }
 
-    if (editor.isContentEditable) {
-      const range = document.createRange();
-      range.selectNodeContents(editor);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-
-      const ok = document.execCommand('insertText', false, textToInject);
-      if (!ok) {
-        const p = editor.querySelector('p') || editor;
-        p.textContent = textToInject;
+    // 1. Attach exact files if provided
+    if (files && Array.isArray(files) && files.length > 0) {
+      const fileObjects = files.map(createFileObject).filter(Boolean);
+      if (fileObjects.length > 0) {
+        await attachFilesToWeb(fileObjects);
+        await waitForAttachmentsReady(editor);
       }
-    } else {
-      editor.value = textToInject;
     }
 
-    // Fire input events for React / Angular / ProseMirror state
-    editor.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: textToInject }));
-    editor.dispatchEvent(new Event('input', { bubbles: true }));
-    editor.dispatchEvent(new Event('change', { bubbles: true }));
+    const textToInject = (promptText || '').trim();
+    if (textToInject) {
+      editor.focus();
 
-    await new Promise((r) => setTimeout(r, 200));
-  } else {
-    editor.focus();
-    await new Promise((r) => setTimeout(r, 100));
-  }
+      if (editor.isContentEditable) {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
 
-  // Trigger send
-  await triggerSend(editor);
+        const ok = document.execCommand('insertText', false, textToInject);
+        if (!ok) {
+          const p = editor.querySelector('p') || editor;
+          p.textContent = textToInject;
+        }
+      } else {
+        editor.value = textToInject;
+      }
 
-  if (onComplete) {
-    observeResponse(onComplete);
+      // Fire input events for React / Angular / ProseMirror state
+      editor.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: textToInject }));
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.dispatchEvent(new Event('change', { bubbles: true }));
+
+      await new Promise((r) => setTimeout(r, 200));
+    } else {
+      editor.focus();
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    // Trigger send
+    await triggerSend(editor);
+
+    if (onComplete) {
+      observeResponse(onComplete);
+    }
+  } finally {
+    setTimeout(() => {
+      isCurrentlyInjecting = false;
+    }, 1500);
   }
 }
 
