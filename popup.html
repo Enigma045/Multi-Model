@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude, Gemini & Grok AI Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body data-active-model="claude">
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="model-switch-group">
+        <button id="tab-claude" class="model-tab active" data-model="claude">
+          <span class="dot claude-dot"></span>
+          <span>Claude</span>
+        </button>
+        <button id="tab-gemini" class="model-tab" data-model="gemini">
+          <span class="dot gemini-dot"></span>
+          <span>Gemini</span>
+        </button>
+        <button id="tab-grok" class="model-tab" data-model="grok">
+          <span class="dot grok-dot"></span>
+          <span>Grok</span>
+        </button>
+      </div>
+
+      <div class="actions">
+        <span id="status-badge" class="status-badge checking">Checking...</span>
+        <button id="btn-sidepanel" class="icon-btn" title="Open in Side Panel">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="15" y1="3" x2="15" y2="21"></line>
+          </svg>
+        </button>
+        <button id="btn-clear" class="icon-btn" title="Clear Chat">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Connect Banner -->
+    <div id="connect-banner" class="connect-banner hidden">
+      <span id="banner-text">claude.ai tab is not open</span>
+      <button id="btn-open-tab" class="btn-sm">Open Tab</button>
+    </div>
+
+    <!-- Messages Container -->
+    <main id="chat-container" class="chat-container">
+      <div id="welcome-message" class="welcome-box">
+        <div class="welcome-icon">✨</div>
+        <h3 id="welcome-title">Chat with Claude, Gemini & Grok</h3>
+        <p id="welcome-desc">Send a message directly to your browser session with zero API keys.</p>
+        <div class="quick-prompts">
+          <button class="prompt-chip" data-prompt="Summarize this topic in 3 bullets">Summarize in 3 bullets</button>
+          <button class="prompt-chip" data-prompt="Explain this clearly with an example">Explain with an example</button>
+          <button class="prompt-chip" data-prompt="Write a concise reply to: ">Draft a reply</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Input Footer -->
+    <footer class="footer">
+      <div class="input-wrapper">
+        <textarea id="prompt-input" rows="1" placeholder="Ask Claude... (Enter to send)" autofocus></textarea>
+        <button id="btn-send" class="btn-send" title="Send (Enter)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

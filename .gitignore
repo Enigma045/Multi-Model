@@ -1,0 +1,35 @@
+# Compiled binaries and executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+claude.exe
+claude-cli.exe
+
+# Go build cache and test artifacts
+.gocache/
+*.test
+*.out
+*.prof
+
+# Sandbox generated outputs and execution logs
+Sandbox/
+*.log
+execution.log
+
+# Chrome Extension / Web packages
+*.zip
+*.crx
+node_modules/
+npm-debug.log*
+
+# Editor & IDE configs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
